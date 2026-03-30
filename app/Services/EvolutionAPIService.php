@@ -164,4 +164,33 @@ class EvolutionAPIService
             return ['name' => 'Usuário', 'about' => 'Olá! Eu estou usando o WhatsApp.', 'picture' => null];
         }
     }
+
+    public function setupWebhook(string $instanceName, string $webhookUrl): array
+    {
+        try {
+            $response = Http::timeout(10)
+                ->connectTimeout(5)
+                ->withHeaders([
+                    'apikey' => $this->apiKey,
+                    'Content-Type' => 'application/json',
+                ])->post("{$this->baseUrl}/webhook/set/{$instanceName}", [
+                    'enabled' => true,
+                    'url' => $webhookUrl,
+                    'webhookByEvents' => false,
+                    'webhookBase64' => false,
+                    'events' => [
+                        'MESSAGES_UPSERT',
+                        'MESSAGES_UPDATE',
+                        'SEND_MESSAGE',
+                        'CONNECTION_UPDATE',
+                    ],
+                ]);
+
+            Log::info("Webhook configurado para {$instanceName}", ['response' => $response->json()]);
+            return $response->json() ?? ['success' => true];
+        } catch (\Exception $e) {
+            Log::error("Erro ao configurar webhook: " . $e->getMessage());
+            return ['error' => 'Falha ao configurar webhook', 'message' => $e->getMessage()];
+        }
+    }
 }

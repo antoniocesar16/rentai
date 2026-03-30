@@ -38,6 +38,8 @@ class WhatsappInstanceController extends Controller
         if (isset($result['instance'])) {
             $pairingCode = $this->evolutionAPI->getPairingCode($instanceName);
             
+            $webhookSlug = \Illuminate\Support\Str::slug($request->display_name) . '-' . \Illuminate\Support\Str::random(8);
+
             $instance = WhatsappInstance::create([
                 'user_id' => auth()->id(),
                 'instance_name' => $instanceName,
@@ -46,8 +48,12 @@ class WhatsappInstanceController extends Controller
                 'status' => 'disconnected',
                 'pairing_code' => $pairingCode['pairingCode'] ?? null,
                 'api_token' => bin2hex(random_bytes(32)),
-                'webhook_slug' => \Illuminate\Support\Str::slug($request->display_name) . '-' . \Illuminate\Support\Str::random(8),
+                'webhook_slug' => $webhookSlug,
             ]);
+
+            // Configura webhook para receber mensagens
+            $webhookUrl = config('app.url') . "/api/webhooks/whatsapp/{$webhookSlug}";
+            $this->evolutionAPI->setupWebhook($instanceName, $webhookUrl);
 
 
             return redirect()->route('whatsapp.show', $instance)->with('success', 'Instância criada! Use o código de pareamento.');
