@@ -17,3 +17,6 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
+
+// WhatsApp Webhook - não requer autenticação
+Route::post('/webhooks/whatsapp/{slug}', [\App\Http\Controllers\WhatsappWebhookController::class, 'handleWebhook']);
