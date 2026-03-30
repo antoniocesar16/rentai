@@ -12,8 +12,8 @@ class EvolutionAPIService
 
     public function __construct()
     {
-        $this->baseUrl = config('services.evolution.url', 'http://31.97.242.226:8080');
-        $this->apiKey = config('services.evolution.api_key', '75f14a4f-7b78-458f-af98-3bed7f15e4eb');
+        $this->baseUrl = config('services.evolution.url', '');
+        $this->apiKey = config('services.evolution.api_key', '');
     }
 
     public function createInstance(string $instanceName, $number = null): array
