@@ -15,10 +15,10 @@ use Laravel\Jetstream\Http\Controllers\TeamInvitationController;
 |
 */
 
-Route::get('/', fn () => view('welcome'));
+Route::get('/', fn() => view('anuncie'))->name('anuncie');
 
 Route::get('/team-invitations/{invitation}', [TeamInvitationController::class, 'accept'])
     ->middleware(['signed', 'verified', 'auth', AuthenticateSession::class])
     ->name('team-invitations.accept');
 
-require __DIR__.'/socialstream.php';
+require __DIR__ . '/socialstream.php';

@@ -186,6 +186,12 @@ class ModuleManager
 
         foreach ($modules as $modulePath) {
             $moduleName = basename($modulePath);
+
+            // Only process real modules that follow the expected file convention.
+            if (!File::exists($modulePath . DIRECTORY_SEPARATOR . "{$moduleName}Module.php")) {
+                continue;
+            }
+
             $this->loadModule($moduleName, $modulePath);
         }
     }
