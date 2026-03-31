@@ -116,23 +116,74 @@ class EvolutionAPIService
         }
     }
 
-    public function sendMessage(string $instanceName, string $numero, string $mensagem): array
+    public function sendMessage(string $instanceName, string $numero, string $mensagem, array $options = []): array
     {
         try {
+            $payload = [
+                'number' => $numero,
+                'text' => $mensagem,
+                'delay' => (int) ($options['delay'] ?? 0),
+                'linkPreview' => (bool) ($options['linkPreview'] ?? true),
+                'mentionsEveryOne' => (bool) ($options['mentionsEveryOne'] ?? false),
+                'mentioned' => is_array($options['mentioned'] ?? null) ? $options['mentioned'] : [],
+            ];
+
+            if (!empty($options['quoted']) && is_array($options['quoted'])) {
+                $payload['quoted'] = $options['quoted'];
+            }
+
             $response = Http::timeout(10)
                 ->connectTimeout(5)
                 ->withHeaders([
                     'apikey' => $this->apiKey,
                     'Content-Type' => 'application/json',
-                ])->post("{$this->baseUrl}/message/sendText/{$instanceName}", [
-                        'number' => $numero,
-                        'text' => $mensagem,
-                    ]);
+                ])->post("{$this->baseUrl}/message/sendText/{$instanceName}", $payload);
 
             return $response->json() ?? ['success' => true];
         } catch (\Exception $e) {
             Log::error("Erro ao enviar mensagem: " . $e->getMessage());
             return ['error' => 'Falha ao enviar mensagem', 'message' => $e->getMessage()];
+        }
+    }
+
+    public function sendMediaMessage(
+        string $instanceName,
+        string $numero,
+        string $media,
+        string $caption = '',
+        string $mimeType = 'image/jpeg',
+        string $fileName = 'imovel.jpg',
+        array $options = [],
+    ): array {
+        try {
+            $payload = [
+                'number' => $numero,
+                'mediatype' => 'image',
+                'mimetype' => $mimeType,
+                'caption' => $caption,
+                'media' => $media,
+                'fileName' => $fileName,
+                'delay' => (int) ($options['delay'] ?? 0),
+                'linkPreview' => (bool) ($options['linkPreview'] ?? true),
+                'mentionsEveryOne' => (bool) ($options['mentionsEveryOne'] ?? false),
+                'mentioned' => is_array($options['mentioned'] ?? null) ? $options['mentioned'] : [],
+            ];
+
+            if (!empty($options['quoted']) && is_array($options['quoted'])) {
+                $payload['quoted'] = $options['quoted'];
+            }
+
+            $response = Http::timeout(20)
+                ->connectTimeout(5)
+                ->withHeaders([
+                    'apikey' => $this->apiKey,
+                    'Content-Type' => 'application/json',
+                ])->post("{$this->baseUrl}/message/sendMedia/{$instanceName}", $payload);
+
+            return $response->json() ?? ['success' => true];
+        } catch (\Exception $e) {
+            Log::error("Erro ao enviar midia: " . $e->getMessage());
+            return ['error' => 'Falha ao enviar midia', 'message' => $e->getMessage()];
         }
     }
 

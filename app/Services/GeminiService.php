@@ -88,6 +88,79 @@ PROMPT;
         return $result;
     }
 
+    /**
+     * Gera resposta humanizada usando contexto recuperado do banco (RAG).
+     */
+    public function generateHumanizedReplyWithRag(
+        string $userMessage,
+        string $senderName,
+        array $properties,
+        array $conversationHistory,
+    ): string {
+        $result = '';
+
+        if (!$this->apiKey) {
+            return $result;
+        }
+
+        $propertyContext = json_encode($properties, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $historyContext = json_encode($conversationHistory, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        $prompt = <<<PROMPT
+Voce e um atendente humano de imobiliaria no WhatsApp.
+Objetivo: responder de forma natural, curta e util, usando APENAS o contexto abaixo.
+
+Regras:
+- Nao invente informacoes que nao estejam no contexto.
+- Se faltar dado, diga de forma transparente e faca 1 pergunta objetiva.
+- Escreva em portugues brasileiro, tom amigavel e humano.
+- Resposta com no maximo 450 caracteres.
+- Nao responder em JSON.
+
+Nome do cliente: {$senderName}
+Mensagem do cliente: {$userMessage}
+
+Contexto de imoveis (RAG):
+{$propertyContext}
+
+Historico recente da conversa:
+{$historyContext}
+PROMPT;
+
+        try {
+            $response = Http::timeout(30)
+                ->post($this->baseUrl . '?key=' . $this->apiKey, [
+                    'contents' => [
+                        [
+                            'role' => 'user',
+                            'parts' => [
+                                ['text' => $prompt],
+                            ],
+                        ],
+                    ],
+                    'generationConfig' => [
+                        'temperature' => 0.8,
+                        'topK' => 40,
+                        'topP' => 0.95,
+                        'maxOutputTokens' => 220,
+                    ],
+                ]);
+
+            if ($response->successful()) {
+                $content = $response->json('candidates.0.content.parts.0.text', '');
+                if (is_string($content)) {
+                    $result = trim($content);
+                }
+            } else {
+                Log::warning('Falha ao gerar resposta RAG no Gemini', ['response' => $response->json()]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Erro ao gerar resposta RAG com Gemini: ' . $e->getMessage());
+        }
+
+        return $result;
+    }
+
 
 
     /**

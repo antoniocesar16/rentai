@@ -80,10 +80,17 @@ class WhatsappWebhookController extends Controller
         $detectedIntent = isset($intent['intent']) ? $intent['intent'] : null;
         $confidence = isset($intent['confidence']) ? (float) $intent['confidence'] : 0.0;
 
-        if ($detectedIntent === 'list_apartments' && $confidence > 0.6) {
+        if ($this->wantsPropertyMedia($messageText)) {
+            $responseText = $this->respondWithPropertyMedia($instance, (string) $senderNumber, (string) $messageText);
+        } elseif ($detectedIntent === 'list_apartments' && $confidence > 0.6) {
             $responseText = $this->respondWithApartmentList($instance, (string) $senderNumber);
         } else {
-            $responseText = $this->respondWithDefaultMessage($instance, (string) $senderNumber);
+            $responseText = $this->respondWithHumanizedRag(
+                $instance,
+                (string) $senderNumber,
+                (string) ($senderName ?? ''),
+                (string) $messageText,
+            );
         }
 
         $this->storeWebhookMessage(
@@ -151,6 +158,33 @@ class WhatsappWebhookController extends Controller
         return is_string($messageText) && trim($messageText) !== '';
     }
 
+    private function wantsPropertyMedia(string $messageText): bool
+    {
+        $text = mb_strtolower($messageText);
+        $keywords = [
+            'foto',
+            'fotos',
+            'imagem',
+            'imagens',
+            'video',
+            'ver mais',
+            'mais detalhes',
+            'mostrar imovel',
+            'mostrar apartamento',
+            'quero ver',
+            'tem foto',
+            'me mostra',
+        ];
+
+        foreach ($keywords as $keyword) {
+            if (str_contains($text, $keyword)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
     * Resolve a instancia alvo pelo slug ou instanceName do payload.
      */
@@ -216,6 +250,7 @@ class WhatsappWebhookController extends Controller
     private function respondWithApartmentList(WhatsappInstance $instance, string $senderNumber): string
     {
         $properties = Property::select('id', 'title', 'price', 'location', 'description')
+            ->where('user_id', $instance->user_id)
             ->limit(5)
             ->get()
             ->toArray();
@@ -233,12 +268,116 @@ class WhatsappWebhookController extends Controller
         return $response;
     }
 
-    /**
-    * Responde com mensagem padrao.
-     */
-    private function respondWithDefaultMessage(WhatsappInstance $instance, string $senderNumber): string
+    private function respondWithPropertyMedia(WhatsappInstance $instance, string $senderNumber, string $userMessage): string
     {
-        $response = "Ola!\n\nEscreva *LISTAR* para ver nossos apartamentos disponiveis, ou envie sua duvida. Estamos aqui para ajudar!";
+        $properties = $this->retrieveRelevantPropertiesWithPhotos($instance, $userMessage);
+
+        if (empty($properties)) {
+            $fallback = 'No momento nao encontrei fotos cadastradas para este imovel, mas posso te enviar os detalhes em texto. Quer que eu envie agora?';
+            $this->evolutionAPI->sendMessage($instance->instance_name, $senderNumber, $fallback, ['delay' => 300]);
+            return $fallback;
+        }
+
+        $intro = 'Perfeito! Separei algumas fotos para voce dar uma olhada.';
+        $this->evolutionAPI->sendMessage($instance->instance_name, $senderNumber, $intro, ['delay' => 250]);
+
+        $sent = $this->sendPropertyPhotos($instance, $senderNumber, $properties, 4);
+
+        if ($sent === 0) {
+            $fallback = 'Nao consegui carregar as imagens agora, mas posso te enviar os detalhes do imovel em texto.';
+            $this->evolutionAPI->sendMessage($instance->instance_name, $senderNumber, $fallback, ['delay' => 300]);
+            return $fallback;
+        }
+
+        $ending = 'Se quiser, te mando agora as condicoes e como agendar visita.';
+        $this->evolutionAPI->sendMessage($instance->instance_name, $senderNumber, $ending, ['delay' => 300]);
+
+        return $intro . "\n" . $ending;
+    }
+
+    private function sendPropertyPhotos(WhatsappInstance $instance, string $senderNumber, array $properties, int $maxPhotos): int
+    {
+        $jobs = $this->buildPropertyPhotoJobs($properties, $maxPhotos);
+
+        foreach ($jobs as $job) {
+            $this->evolutionAPI->sendMediaMessage(
+                $instance->instance_name,
+                $senderNumber,
+                $job['media'],
+                $job['caption'],
+                'image/jpeg',
+                $job['fileName'],
+                ['delay' => 350]
+            );
+        }
+
+        return count($jobs);
+    }
+
+    private function buildPropertyPhotoJobs(array $properties, int $maxPhotos): array
+    {
+        $jobs = [];
+
+        foreach ($properties as $property) {
+            $photos = $property['photos'] ?? [];
+            if (!is_array($photos)) {
+                continue;
+            }
+
+            foreach (array_slice($photos, 0, 2) as $index => $photo) {
+                if (count($jobs) >= $maxPhotos) {
+                    return $jobs;
+                }
+
+                $mediaUrl = $this->normalizeMediaUrl((string) $photo);
+                if ($mediaUrl === null) {
+                    continue;
+                }
+
+                $jobs[] = [
+                    'media' => $mediaUrl,
+                    'caption' => $index === 0
+                        ? "{$property['title']} - {$property['location']} - R$ {$property['price']}"
+                        : "Mais um angulo de {$property['title']}",
+                    'fileName' => 'imovel-' . $property['id'] . '.jpg',
+                ];
+            }
+        }
+
+        return $jobs;
+    }
+
+    /**
+    * Resposta humanizada com RAG (banco + historico da conversa).
+     */
+    private function respondWithHumanizedRag(
+        WhatsappInstance $instance,
+        string $senderNumber,
+        string $senderName,
+        string $userMessage,
+    ): string {
+        $properties = $this->retrieveRelevantProperties($instance, $userMessage);
+
+        $conversationHistory = WhatsappWebhookMessage::query()
+            ->where('whatsapp_instance_id', $instance->id)
+            ->where('sender_number', $senderNumber)
+            ->latest()
+            ->limit(8)
+            ->get(['direction', 'message_text', 'created_at'])
+            ->reverse()
+            ->values()
+            ->toArray();
+
+        $response = $this->geminiService->generateHumanizedReplyWithRag(
+            userMessage: $userMessage,
+            senderName: $senderName,
+            properties: $properties,
+            conversationHistory: $conversationHistory,
+        );
+
+        if (!is_string($response) || trim($response) === '') {
+            $response = "Entendi! Posso te ajudar a encontrar um apartamento ideal. Se quiser, me diga bairro, faixa de preco e quantidade de quartos.";
+        }
 
         $this->evolutionAPI->sendMessage(
             $instance->instance_name,
@@ -247,6 +386,94 @@ class WhatsappWebhookController extends Controller
         );
 
         return $response;
+    }
+
+    private function retrieveRelevantProperties(WhatsappInstance $instance, string $userMessage): array
+    {
+        $query = Property::query()
+            ->where('user_id', $instance->user_id)
+            ->select('id', 'title', 'description', 'price', 'location');
+
+        $terms = preg_split('/\s+/', mb_strtolower($userMessage));
+        $terms = array_values(array_filter($terms ?: [], fn($term) => mb_strlen($term) >= 3));
+
+        if (!empty($terms)) {
+            $query->where(function ($q) use ($terms) {
+                foreach ($terms as $term) {
+                    $like = '%' . $term . '%';
+                    $q->orWhereRaw('LOWER(title) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(location) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(description) LIKE ?', [$like]);
+                }
+            });
+        }
+
+        $properties = $query->limit(6)->get()->toArray();
+
+        if (empty($properties)) {
+            $properties = Property::query()
+                ->where('user_id', $instance->user_id)
+                ->select('id', 'title', 'description', 'price', 'location')
+                ->latest()
+                ->limit(6)
+                ->get()
+                ->toArray();
+        }
+
+        return $properties;
+    }
+
+    private function retrieveRelevantPropertiesWithPhotos(WhatsappInstance $instance, string $userMessage): array
+    {
+        $query = Property::query()
+            ->where('user_id', $instance->user_id)
+            ->whereNotNull('photos')
+            ->select('id', 'title', 'price', 'location', 'photos');
+
+        $terms = preg_split('/\s+/', mb_strtolower($userMessage));
+        $terms = array_values(array_filter($terms ?: [], fn($term) => mb_strlen($term) >= 3));
+
+        if (!empty($terms)) {
+            $query->where(function ($q) use ($terms) {
+                foreach ($terms as $term) {
+                    $like = '%' . $term . '%';
+                    $q->orWhereRaw('LOWER(title) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(location) LIKE ?', [$like]);
+                }
+            });
+        }
+
+        $rows = $query->limit(4)->get()->toArray();
+
+        if (empty($rows)) {
+            $rows = Property::query()
+                ->where('user_id', $instance->user_id)
+                ->whereNotNull('photos')
+                ->select('id', 'title', 'price', 'location', 'photos')
+                ->latest()
+                ->limit(4)
+                ->get()
+                ->toArray();
+        }
+
+        return $rows;
+    }
+
+    private function normalizeMediaUrl(string $media): ?string
+    {
+        $media = trim($media);
+        if ($media === '') {
+            return null;
+        }
+
+        if (preg_match('/^https?:\/\//i', $media) === 1) {
+            return $media;
+        }
+
+        $base = rtrim((string) config('app.url'), '/');
+        $path = '/' . ltrim($media, '/');
+
+        return $base . $path;
     }
 
     private function storeWebhookMessage(
