@@ -168,26 +168,66 @@ class EvolutionAPIService
     public function setupWebhook(string $instanceName, string $webhookUrl): array
     {
         try {
+            $headers = [
+                'apikey' => $this->apiKey,
+                'Content-Type' => 'application/json',
+            ];
+
+            $webhookData = [
+                'enabled' => true,
+                'url' => $webhookUrl,
+                'webhookByEvents' => true,
+                'webhookBase64' => false,
+                'events' => [
+                    'MESSAGES_UPSERT',
+                    'MESSAGES_UPDATE',
+                    'SEND_MESSAGE',
+                    'CONNECTION_UPDATE',
+                ],
+            ];
+
+            // Algumas versões da Evolution exigem o payload dentro da chave "webhook".
             $response = Http::timeout(10)
                 ->connectTimeout(5)
-                ->withHeaders([
-                    'apikey' => $this->apiKey,
-                    'Content-Type' => 'application/json',
-                ])->post("{$this->baseUrl}/webhook/set/{$instanceName}", [
-                    'enabled' => true,
-                    'url' => $webhookUrl,
-                    'webhookByEvents' => false,
-                    'webhookBase64' => false,
-                    'events' => [
-                        'MESSAGES_UPSERT',
-                        'MESSAGES_UPDATE',
-                        'SEND_MESSAGE',
-                        'CONNECTION_UPDATE',
-                    ],
+                ->withHeaders($headers)
+                ->post("{$this->baseUrl}/webhook/set/{$instanceName}", [
+                    'webhook' => $webhookData,
                 ]);
 
-            Log::info("Webhook configurado para {$instanceName}", ['response' => $response->json()]);
-            return $response->json() ?? ['success' => true];
+            // Fallback para versões que aceitam payload flat.
+            if (!$response->successful()) {
+                $response = Http::timeout(10)
+                    ->connectTimeout(5)
+                    ->withHeaders($headers)
+                    ->post("{$this->baseUrl}/webhook/set/{$instanceName}", $webhookData);
+            }
+
+            $responseBody = $response->json();
+
+            if ($response->successful()) {
+                Log::info("Webhook configurado para {$instanceName}", ['response' => $responseBody]);
+                return [
+                    'success' => true,
+                    'status' => $response->status(),
+                    'response' => $responseBody,
+                ];
+            }
+
+            $message = data_get($responseBody, 'response.message.0.0')
+                ?? data_get($responseBody, 'message')
+                ?? 'Erro desconhecido ao configurar webhook';
+
+            Log::warning("Falha ao configurar webhook para {$instanceName}", [
+                'status' => $response->status(),
+                'response' => $responseBody,
+            ]);
+
+            return [
+                'error' => true,
+                'status' => $response->status(),
+                'message' => (string) $message,
+                'response' => $responseBody,
+            ];
         } catch (\Exception $e) {
             Log::error("Erro ao configurar webhook: " . $e->getMessage());
             return ['error' => 'Falha ao configurar webhook', 'message' => $e->getMessage()];

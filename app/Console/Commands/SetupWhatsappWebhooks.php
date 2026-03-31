@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Log;
 
 class SetupWhatsappWebhooks extends Command
 {
-    protected $signature = 'whatsapp:setup-webhooks 
+    protected $signature = 'whatsapp:setup-webhooks
                           {--instance-id= : ID de instância específica}
                           {--force : Reconfigurar mesmo se já existente}';
 
