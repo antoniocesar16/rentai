@@ -21,7 +21,7 @@ class WhatsappWebhookController extends Controller
      */
     public function handleWebhook(Request $request, string $slug)
     {
-        Log::debug('Webhook recebido', ['slug' => $slug, 'body' => $request->all()]);
+        Log::info('Webhook request recebida', $this->buildWebhookLogContext($request, $slug));
 
         try {
             $validationResult = $this->validateWebhookData($request);
@@ -77,6 +77,27 @@ class WhatsappWebhookController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * Monta contexto de log para cada request recebida no webhook.
+     */
+    private function buildWebhookLogContext(Request $request, string $slug): array
+    {
+        $headers = [
+            'content_type' => $request->header('Content-Type'),
+            'user_agent' => $request->header('User-Agent'),
+            'x_forwarded_for' => $request->header('X-Forwarded-For'),
+        ];
+
+        return [
+            'slug' => $slug,
+            'method' => $request->method(),
+            'url' => $request->fullUrl(),
+            'ip' => $request->ip(),
+            'headers' => $headers,
+            'payload' => $request->all(),
+        ];
     }
 
 
