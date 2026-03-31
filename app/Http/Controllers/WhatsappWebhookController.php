@@ -18,95 +18,92 @@ class WhatsappWebhookController extends Controller
     ) {}
 
     /**
-     * Recebe webhooks de mensagens do WhatsApp via Evolution API
+     * Recebe webhooks de mensagens do WhatsApp via Evolution API.
      */
     public function handleWebhook(Request $request, ?string $slug = null)
     {
         Log::info('Webhook request recebida', $this->buildWebhookLogContext($request, $slug));
 
         try {
-            $validationResult = $this->validateWebhookData($request);
-            if ($validationResult) {
-                return $validationResult;
-            }
+            $response = response()->json(['success' => true, 'ignored' => true]);
 
-            $instanceName = $this->extractInstanceNameFromPayload($request);
+            if ($this->shouldProcessIncomingMessage($request)) {
+                $validationResult = $this->validateWebhookData($request);
 
-            // Localiza a instância pelo slug (preferencialmente) ou pelo instanceName do payload.
-            $instanceQuery = WhatsappInstance::query();
-
-            if ($slug) {
-                $instanceQuery->where('webhook_slug', $slug);
-            }
-
-            if ($instanceName) {
-                $instanceQuery->orWhere('instance_name', $instanceName);
-            }
-
-            if (!$slug && !$instanceName) {
-                $instanceQuery->whereRaw('1 = 0');
-            }
-
-            $instance = $instanceQuery->firstOrFail();
-
-            // Extrai dados da mensagem
-            $data = $request->json()->all();
-            $messageData = $data['data'] ?? [];
-            $senderNumber = $data['sender']
-                ?? ($messageData['key']['remoteJid'] ?? null)
-                ?? ($messageData['key']['remoteJidAlt'] ?? null);
-            $senderName = $messageData['pushName'] ?? null;
-            $messageText = $messageData['message']['conversation']
-                ?? $messageData['body']
-                ?? '';
-            $eventName = $data['event'] ?? null;
-
-            // Armazena mensagem recebida para montar histórico de chat.
-            $this->storeWebhookMessage(
-                instance: $instance,
-                direction: 'inbound',
-                senderNumber: $senderNumber,
-                senderName: $senderName,
-                messageText: $messageText,
-                eventName: $eventName,
-                payload: $data,
-            );
-
-            Log::info("Mensagem recebida de {$senderNumber}: {$messageText}");
-
-            // Analisa a intenção com Gemini
-            $intent = $this->geminiService->analyzeIntent($messageText);
-
-            // Processa a intenção
-            if ($intent['intent'] === 'list_apartments' && $intent['confidence'] > 0.6) {
-                $responseText = $this->respondWithApartmentList($instance, $senderNumber);
+                if ($validationResult) {
+                    $response = $validationResult;
+                } else {
+                    $response = $this->processInboundMessage($request, $slug);
+                }
             } else {
-                $responseText = $this->respondWithDefaultMessage($instance, $senderNumber);
+                Log::info('Webhook ignorada (evento nao processavel para resposta).', [
+                    'event' => $request->input('event'),
+                    'instance' => $this->extractInstanceNameFromPayload($request),
+                ]);
             }
 
-            // Armazena resposta do bot.
-            $this->storeWebhookMessage(
-                instance: $instance,
-                direction: 'outbound',
-                senderNumber: $senderNumber,
-                senderName: $senderName,
-                messageText: $responseText,
-                eventName: 'bot.response',
-                payload: [
-                    'intent' => $intent,
-                    'trigger_event' => $eventName,
-                ],
-            );
-
-            return response()->json(['success' => true]);
+            return $response;
         } catch (\Exception $e) {
             Log::error('Erro ao processar webhook: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
         }
     }
 
+    private function processInboundMessage(Request $request, ?string $slug)
+    {
+        $instance = $this->resolveInstance($request, $slug);
+
+        $data = $request->json()->all();
+        $messageData = $data['data'] ?? [];
+        $senderNumber = $data['sender']
+            ?? ($messageData['key']['remoteJid'] ?? null)
+            ?? ($messageData['key']['remoteJidAlt'] ?? null);
+        $senderName = $messageData['pushName'] ?? null;
+        $messageText = $messageData['message']['conversation']
+            ?? $messageData['body']
+            ?? '';
+        $eventName = $data['event'] ?? null;
+
+        $this->storeWebhookMessage(
+            instance: $instance,
+            direction: 'inbound',
+            senderNumber: $senderNumber,
+            senderName: $senderName,
+            messageText: $messageText,
+            eventName: $eventName,
+            payload: $data,
+        );
+
+        Log::info("Mensagem recebida de {$senderNumber}: {$messageText}");
+
+        $intent = $this->geminiService->analyzeIntent($messageText);
+        $detectedIntent = isset($intent['intent']) ? $intent['intent'] : null;
+        $confidence = isset($intent['confidence']) ? (float) $intent['confidence'] : 0.0;
+
+        if ($detectedIntent === 'list_apartments' && $confidence > 0.6) {
+            $responseText = $this->respondWithApartmentList($instance, (string) $senderNumber);
+        } else {
+            $responseText = $this->respondWithDefaultMessage($instance, (string) $senderNumber);
+        }
+
+        $this->storeWebhookMessage(
+            instance: $instance,
+            direction: 'outbound',
+            senderNumber: $senderNumber,
+            senderName: $senderName,
+            messageText: $responseText,
+            eventName: 'bot.response',
+            payload: [
+                'intent' => $intent,
+                'trigger_event' => $eventName,
+            ],
+        );
+
+        return response()->json(['success' => true]);
+    }
+
     /**
-     * Valida dados do webhook
+     * Valida dados essenciais do webhook.
      */
     private function validateWebhookData(Request $request)
     {
@@ -132,6 +129,52 @@ class WhatsappWebhookController extends Controller
     }
 
     /**
+     * Evita loop: processa apenas mensagens recebidas do cliente.
+     */
+    private function shouldProcessIncomingMessage(Request $request): bool
+    {
+        $event = (string) ($request->input('event') ?? '');
+        $normalizedEvent = strtolower(str_replace('_', '.', $event));
+
+        if ($normalizedEvent !== 'messages.upsert') {
+            return false;
+        }
+
+        $fromMe = (bool) data_get($request->all(), 'data.key.fromMe', false);
+        if ($fromMe) {
+            return false;
+        }
+
+        $messageText = data_get($request->all(), 'data.message.conversation')
+            ?? data_get($request->all(), 'data.body');
+
+        return is_string($messageText) && trim($messageText) !== '';
+    }
+
+    /**
+    * Resolve a instancia alvo pelo slug ou instanceName do payload.
+     */
+    private function resolveInstance(Request $request, ?string $slug): WhatsappInstance
+    {
+        $instanceName = $this->extractInstanceNameFromPayload($request);
+        $query = WhatsappInstance::query();
+
+        if ($slug) {
+            $query->where('webhook_slug', $slug);
+        }
+
+        if ($instanceName) {
+            $query->orWhere('instance_name', $instanceName);
+        }
+
+        if (!$slug && !$instanceName) {
+            $query->whereRaw('1 = 0');
+        }
+
+        return $query->firstOrFail();
+    }
+
+    /**
      * Monta contexto de log para cada request recebida no webhook.
      */
     private function buildWebhookLogContext(Request $request, ?string $slug): array
@@ -154,7 +197,7 @@ class WhatsappWebhookController extends Controller
     }
 
     /**
-     * Tenta extrair o nome da instância da estrutura de payload da Evolution API.
+    * Tenta extrair o nome da instancia da estrutura de payload da Evolution API.
      */
     private function extractInstanceNameFromPayload(Request $request): ?string
     {
@@ -167,22 +210,18 @@ class WhatsappWebhookController extends Controller
             ?? null;
     }
 
-
     /**
-     * Responde com lista de apartamentos
+     * Responde com lista de apartamentos.
      */
-    private function respondWithApartmentList($instance, $senderNumber): string
+    private function respondWithApartmentList(WhatsappInstance $instance, string $senderNumber): string
     {
-        // Busca apartamentos
         $properties = Property::select('id', 'title', 'price', 'location', 'description')
             ->limit(5)
             ->get()
             ->toArray();
 
-        // Formata resposta
         $response = $this->geminiService->formatApartmentList($properties);
 
-        // Envia resposta via WhatsApp
         $this->evolutionAPI->sendMessage(
             $instance->instance_name,
             $senderNumber,
@@ -195,11 +234,11 @@ class WhatsappWebhookController extends Controller
     }
 
     /**
-     * Responde com mensagem padrão
+    * Responde com mensagem padrao.
      */
-    private function respondWithDefaultMessage($instance, $senderNumber): string
+    private function respondWithDefaultMessage(WhatsappInstance $instance, string $senderNumber): string
     {
-        $response = "Olá! 👋\n\nEscreva *LISTAR* para ver nossos apartamentos disponíveis, ou envie sua dúvida. Estamos aqui para ajudar! 😊";
+        $response = "Ola!\n\nEscreva *LISTAR* para ver nossos apartamentos disponiveis, ou envie sua duvida. Estamos aqui para ajudar!";
 
         $this->evolutionAPI->sendMessage(
             $instance->instance_name,
@@ -230,5 +269,4 @@ class WhatsappWebhookController extends Controller
             'payload' => $payload,
         ]);
     }
-
 }
