@@ -7,6 +7,8 @@ use App\Models\WhatsappInstance;
 use App\Models\WhatsappWebhookMessage;
 use App\Services\EvolutionAPIService;
 use App\Services\GeminiService;
+use App\Services\PropertySearchApiService;
+use App\Services\PropertyMatchService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -15,6 +17,8 @@ class WhatsappWebhookController extends Controller
     public function __construct(
         private EvolutionAPIService $evolutionAPI,
         private GeminiService $geminiService,
+        private PropertySearchApiService $propertySearchApiService,
+        private PropertyMatchService $propertyMatchService,
     ) {}
 
     /**
@@ -86,7 +90,7 @@ class WhatsappWebhookController extends Controller
         if ($this->wantsPropertyMedia($messageText)) {
             $responseText = $this->respondWithPropertyMedia($instance, (string) $senderNumber, (string) $messageText);
         } elseif ($detectedIntent === 'list_apartments' && $confidence > 0.6) {
-            $responseText = $this->respondWithApartmentList($instance, (string) $senderNumber);
+            $responseText = $this->respondWithApartmentList($instance, (string) $senderNumber, (string) $messageText);
         } else {
             $responseText = $this->respondWithHumanizedRag(
                 $instance,
@@ -253,16 +257,23 @@ class WhatsappWebhookController extends Controller
     /**
      * Responde com lista de apartamentos.
      */
-    private function respondWithApartmentList(WhatsappInstance $instance, string $senderNumber): string
+    private function respondWithApartmentList(WhatsappInstance $instance, string $senderNumber, string $userMessage): string
     {
-        $properties = Property::select('id', 'title', 'price', 'location', 'description')
-            ->where('user_id', $instance->user_id)
-            ->latest()
-            ->limit(5)
-            ->get()
-            ->toArray();
+        $properties = $this->propertySearchApiService->search($userMessage, 'title,description', 30);
 
-        $response = $this->buildApartmentListMessage($properties);
+        if (empty($properties)) {
+            $properties = $this->propertySearchApiService->search('', 'title,description', 30);
+        }
+
+        if (empty($properties)) {
+            $properties = Property::select('id', 'title', 'price', 'location', 'description', 'photos', 'details', 'user_id')
+                ->latest()
+                ->get()
+                ->toArray();
+        }
+
+        $bestMatch = $this->propertyMatchService->findBestMatchingProperty($properties, $userMessage);
+        $response = $this->propertyMatchService->buildBestApartmentMessage($bestMatch, $properties);
 
         $sendResult = $this->evolutionAPI->sendMessage(
             $instance->instance_name,
@@ -274,41 +285,11 @@ class WhatsappWebhookController extends Controller
             'instance' => $instance->instance_name,
             'sender_number' => $senderNumber,
             'properties_count' => count($properties),
+            'best_match' => $bestMatch['title'] ?? null,
             'send_result' => $sendResult,
         ]);
 
         return $response;
-    }
-
-    private function buildApartmentListMessage(array $properties): string
-    {
-        if (empty($properties)) {
-            return "No momento não há apartamentos cadastrados para esta conta.\n\nSe quiser, posso te ajudar a cadastrar novos imóveis ou te mostrar os detalhes de outro tipo de anúncio.";
-        }
-
-        $message = "🏠 *Apartamentos disponíveis no BD:*\n\n";
-
-        foreach ($properties as $index => $property) {
-            $position = $index + 1;
-            $title = $property['title'] ?? 'Apartamento sem título';
-            $price = isset($property['price']) ? number_format((float) $property['price'], 2, ',', '.') : '0,00';
-            $location = $property['location'] ?? 'Localização não informada';
-            $description = trim((string) ($property['description'] ?? ''));
-
-            $message .= "{$position}. *{$title}*\n";
-            $message .= "   💰 R$ {$price}\n";
-            $message .= "   📍 {$location}\n";
-
-            if ($description !== '') {
-                $message .= '   📝 ' . mb_substr($description, 0, 120) . "\n";
-            }
-
-            $message .= "\n";
-        }
-
-        $message .= "Se quiser, eu também posso filtrar por bairro, faixa de preço ou quantidade de quartos.";
-
-        return $message;
     }
 
     private function respondWithPropertyMedia(WhatsappInstance $instance, string $senderNumber, string $userMessage): string
@@ -439,6 +420,12 @@ class WhatsappWebhookController extends Controller
 
     private function retrieveRelevantProperties(WhatsappInstance $instance, string $userMessage): array
     {
+        $apiProperties = $this->propertySearchApiService->search($userMessage, 'title,description', 12);
+
+        if (!empty($apiProperties)) {
+            return $apiProperties;
+        }
+
         $query = Property::query()
             ->where('user_id', $instance->user_id)
             ->select('id', 'title', 'description', 'price', 'location');
