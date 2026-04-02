@@ -55,9 +55,12 @@ class WhatsappWebhookController extends Controller
 
         $data = $request->json()->all();
         $messageData = $data['data'] ?? [];
-        $senderNumber = $data['sender']
-            ?? ($messageData['key']['remoteJid'] ?? null)
+        $senderNumber = ($messageData['key']['remoteJid'] ?? null)
             ?? ($messageData['key']['remoteJidAlt'] ?? null);
+            
+        if (!$senderNumber) {
+            $senderNumber = $data['sender'] ?? null;
+        }
         $senderName = $messageData['pushName'] ?? null;
         $messageText = $messageData['message']['conversation']
             ?? $messageData['body']
@@ -121,9 +124,12 @@ class WhatsappWebhookController extends Controller
             return response()->json(['success' => false, 'message' => 'No message data'], 400);
         }
 
-        $senderNumber = $data['sender']
-            ?? ($messageData['key']['remoteJid'] ?? null)
+        $senderNumber = ($messageData['key']['remoteJid'] ?? null)
             ?? ($messageData['key']['remoteJidAlt'] ?? null);
+
+        if (!$senderNumber) {
+            $senderNumber = $data['sender'] ?? null;
+        }
         $messageText = $messageData['message']['conversation']
             ?? $messageData['body']
             ?? '';

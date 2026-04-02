@@ -37,6 +37,11 @@ class GeminiService
     {
         $result = ['intent' => 'unknown', 'confidence' => 0];
 
+        Log::info('Gemini analyzeIntent iniciado', [
+            'message_length' => mb_strlen($userMessage),
+            'model_config' => $this->model,
+        ]);
+
         if (!$this->apiKey) {
             Log::warning('Gemini API key não configurada');
             return $result;
@@ -79,6 +84,12 @@ PROMPT;
                         Log::debug('Gemini analysis result', $result);
                     }
                 }
+
+                Log::info('Gemini analyzeIntent concluido', [
+                    'intent' => $result['intent'] ?? 'unknown',
+                    'confidence' => $result['confidence'] ?? 0,
+                    'model' => $response['model'] ?? $this->model,
+                ]);
             } else {
                 Log::warning('Erro ao chamar Gemini API', ['response' => $response['raw'] ?? null, 'status' => $response['status'] ?? null]);
             }
@@ -99,6 +110,14 @@ PROMPT;
         array $conversationHistory,
     ): string {
         $result = '';
+
+        Log::info('Gemini RAG iniciado', [
+            'sender_name' => $senderName,
+            'user_message_length' => mb_strlen($userMessage),
+            'properties_count' => count($properties),
+            'history_count' => count($conversationHistory),
+            'model_config' => $this->model,
+        ]);
 
         if (!$this->apiKey) {
             return $result;
@@ -141,6 +160,11 @@ PROMPT;
                 if (is_string($content)) {
                     $result = trim($content);
                 }
+
+                Log::info('Gemini RAG concluido', [
+                    'response_length' => mb_strlen($result),
+                    'model' => $response['model'] ?? $this->model,
+                ]);
             } else {
                 Log::warning('Falha ao gerar resposta RAG no Gemini', ['response' => $response['raw'] ?? null, 'status' => $response['status'] ?? null]);
             }
@@ -203,6 +227,14 @@ PROMPT;
             $activeModel = $this->fallbackModel;
         }
 
+        Log::info('Gemini request start', [
+            'model' => $activeModel,
+            'verify_ssl' => $verifySsl,
+            'prompt_length' => mb_strlen($prompt),
+            'prompt_preview' => mb_substr(trim($prompt), 0, 120),
+            'generation_config' => $generationConfig,
+        ]);
+
         try {
             $request = Http::timeout(30);
 
@@ -222,6 +254,18 @@ PROMPT;
                 'generationConfig' => $generationConfig,
             ]);
 
+            Log::info('Gemini request finish', [
+                'model' => $activeModel,
+                'status' => $response->status(),
+                'successful' => $response->successful(),
+                'finish_reason' => $response->json('candidates.0.finishReason'),
+                'response_id' => $response->json('responseId'),
+                'prompt_tokens' => $response->json('usageMetadata.promptTokenCount'),
+                'candidates_tokens' => $response->json('usageMetadata.candidatesTokenCount'),
+                'thoughts_tokens' => $response->json('usageMetadata.thoughtsTokenCount'),
+                'total_tokens' => $response->json('usageMetadata.totalTokenCount'),
+            ]);
+
             return [
                 'successful' => $response->successful(),
                 'status' => $response->status(),
@@ -231,6 +275,12 @@ PROMPT;
                 'model' => $activeModel,
             ];
         } catch (ConnectionException $e) {
+            Log::error('Gemini request connection error', [
+                'model' => $activeModel,
+                'verify_ssl' => $verifySsl,
+                'message' => $e->getMessage(),
+            ]);
+
             return [
                 'successful' => false,
                 'status' => 0,
