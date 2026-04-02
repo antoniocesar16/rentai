@@ -36,6 +36,17 @@ class GeminiService
     public function analyzeIntent(string $userMessage): array
     {
         $result = ['intent' => 'unknown', 'confidence' => 0];
+        $localIntent = $this->detectIntentLocally($userMessage);
+
+        if ($localIntent['intent'] === 'list_apartments') {
+            Log::info('Gemini analyzeIntent fallback local aplicado', [
+                'intent' => $localIntent['intent'],
+                'confidence' => $localIntent['confidence'],
+                'message_length' => mb_strlen($userMessage),
+            ]);
+
+            $result = $localIntent;
+        }
 
         Log::info('Gemini analyzeIntent iniciado', [
             'message_length' => mb_strlen($userMessage),
@@ -44,7 +55,7 @@ class GeminiService
 
         if (!$this->apiKey) {
             Log::warning('Gemini API key não configurada');
-            return $result;
+            $result['message'] = 'API key not configured';
         }
 
         $systemPrompt = <<<PROMPT
@@ -52,8 +63,6 @@ Você é um assistente de bot de WhatsApp para uma plataforma de aluguel de apar
 Analise a mensagem do usuário e identifique sua intenção.
 
 Possíveis intenções:
-- "list_apartments": O usuário quer listar/ver apartamentos disponíveis (keywords: listar, ver, mostrar, quais, disponíveis, apartamentos)
-- "unknown": Outra intenção não identificada
 
 Responda APENAS em JSON com a estrutura:
 {
@@ -90,6 +99,19 @@ PROMPT;
                     'confidence' => $result['confidence'] ?? 0,
                     'model' => $response['model'] ?? $this->model,
                 ]);
+
+                if (($result['intent'] ?? 'unknown') === 'unknown') {
+                    $fallbackIntent = $this->detectIntentLocally($userMessage);
+                    if ($fallbackIntent['intent'] !== 'unknown') {
+                        Log::info('Gemini analyzeIntent fallback local após resposta unknown', [
+                            'intent' => $fallbackIntent['intent'],
+                            'confidence' => $fallbackIntent['confidence'],
+                            'model' => $response['model'] ?? $this->model,
+                        ]);
+
+                        return $fallbackIntent;
+                    }
+                }
             } else {
                 Log::warning('Erro ao chamar Gemini API', ['response' => $response['raw'] ?? null, 'status' => $response['status'] ?? null]);
             }
@@ -97,7 +119,7 @@ PROMPT;
             Log::error('Erro ao analisar intenção com Gemini: ' . $e->getMessage());
         }
 
-        return $result;
+        return $result; // Single exit point
     }
 
     /**
@@ -300,6 +322,58 @@ PROMPT;
         ];
 
         return in_array(mb_strtolower(trim($model)), $legacyModels, true);
+    }
+
+    private function detectIntentLocally(string $userMessage): array
+    {
+        $text = mb_strtolower($userMessage);
+        $normalizedText = $this->normalizeText($text);
+
+        $listKeywords = [
+            'lista',
+            'listar',
+            'ver apartamentos',
+            'mostrar apartamentos',
+            'quais apartamentos',
+            'apartamentos',
+            'imoveis',
+            'imoveis disponiveis',
+            'imoveis em',
+            'tem apartamento',
+            'tem apartamentos',
+            'disponiveis',
+            'disponivel',
+            'disponíveis',
+            'disponivel',
+        ];
+
+        foreach ($listKeywords as $keyword) {
+            $normalizedKeyword = $this->normalizeText($keyword);
+
+            if (str_contains($normalizedText, $normalizedKeyword)) {
+                return [
+                    'intent' => 'list_apartments',
+                    'confidence' => 0.9,
+                    'message' => 'Pedido de listagem identificado por palavras-chave.',
+                ];
+            }
+        }
+
+        return [
+            'intent' => 'unknown',
+            'confidence' => 0,
+        ];
+    }
+
+    private function normalizeText(string $text): string
+    {
+        $normalized = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text);
+
+        if ($normalized === false) {
+            $normalized = $text;
+        }
+
+        return preg_replace('/\s+/', ' ', trim(mb_strtolower($normalized))) ?? trim(mb_strtolower($text));
     }
 }
 
