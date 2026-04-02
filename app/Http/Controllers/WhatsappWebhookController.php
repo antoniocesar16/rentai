@@ -257,21 +257,58 @@ class WhatsappWebhookController extends Controller
     {
         $properties = Property::select('id', 'title', 'price', 'location', 'description')
             ->where('user_id', $instance->user_id)
+            ->latest()
             ->limit(5)
             ->get()
             ->toArray();
 
-        $response = $this->geminiService->formatApartmentList($properties);
+        $response = $this->buildApartmentListMessage($properties);
 
-        $this->evolutionAPI->sendMessage(
+        $sendResult = $this->evolutionAPI->sendMessage(
             $instance->instance_name,
             $senderNumber,
             $response
         );
 
-        Log::info("Resposta de listagem enviada para {$senderNumber}");
+        Log::info('Resposta de listagem enviada', [
+            'instance' => $instance->instance_name,
+            'sender_number' => $senderNumber,
+            'properties_count' => count($properties),
+            'send_result' => $sendResult,
+        ]);
 
         return $response;
+    }
+
+    private function buildApartmentListMessage(array $properties): string
+    {
+        if (empty($properties)) {
+            return "No momento não há apartamentos cadastrados para esta conta.\n\nSe quiser, posso te ajudar a cadastrar novos imóveis ou te mostrar os detalhes de outro tipo de anúncio.";
+        }
+
+        $message = "🏠 *Apartamentos disponíveis no BD:*\n\n";
+
+        foreach ($properties as $index => $property) {
+            $position = $index + 1;
+            $title = $property['title'] ?? 'Apartamento sem título';
+            $price = isset($property['price']) ? number_format((float) $property['price'], 2, ',', '.') : '0,00';
+            $location = $property['location'] ?? 'Localização não informada';
+            $description = trim((string) ($property['description'] ?? ''));
+
+            $message .= "{$position}. *{$title}*\n";
+            $message .= "   💰 R$ {$price}\n";
+            $message .= "   📍 {$location}\n";
+
+            if ($description !== '') {
+                $message .= '   📝 ' . mb_substr($description, 0, 120) . "\n";
+            }
+
+            $message .= "\n";
+        }
+
+        $message .= "Se quiser, eu também posso filtrar por bairro, faixa de preço ou quantidade de quartos.";
+
+        return $message;
     }
 
     private function respondWithPropertyMedia(WhatsappInstance $instance, string $senderNumber, string $userMessage): string
