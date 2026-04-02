@@ -47,10 +47,7 @@
                     class="text-slate-600 px-4 py-2.5 rounded-full font-bold hover:text-slate-900 transition">
                     Entrar
                 </a>
-                <a href="#anunciar"
-                    class="bg-slate-900 text-white px-6 py-2.5 rounded-full font-bold hover:bg-slate-800 transition">
-                    Anunciar Agora
-                </a>
+
             </div>
         </div>
     </nav>
@@ -67,10 +64,7 @@
                     aos locatários através da maior vitrine automatizada via WhatsApp da região.
                 </p>
                 <div class="flex flex-col sm:flex-row gap-4">
-                    <a href="#anunciar"
-                        class="bg-green-600 text-white px-8 py-4 rounded-2xl font-bold text-lg shadow-lg shadow-green-200 hover:bg-green-700 transition text-center flex items-center justify-center gap-2">
-                        <i class="fab fa-whatsapp"></i> Quero Anunciar Meu Imóvel
-                    </a>
+
                 </div>
                 <div class="flex items-center gap-6 pt-4">
                     <div class="flex -space-x-3">
@@ -134,65 +128,6 @@
                     <p class="text-slate-600">Saiba exatamente quantas pessoas viram seu imóvel, quantas pediram
                         detalhes e quantas solicitaram visitas.</p>
                 </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Cadastro Simples -->
-    <section id="anunciar" class="py-24 bg-slate-900 text-white">
-        <div class="container mx-auto px-6 max-w-4xl">
-            <div class="bg-white text-slate-900 rounded-[3rem] p-8 lg:p-16 shadow-2xl">
-                <div class="text-center mb-12">
-                    <h2 class="text-3xl font-bold mb-4">Cadastre seu Imóvel Hoje</h2>
-                    <p class="text-slate-500">Preencha os dados básicos e nossa equipe ativará o anúncio em nosso robô.
-                    </p>
-                </div>
-
-                <form class="grid md:grid-cols-2 gap-6">
-                    <div class="space-y-2">
-                        <label class="text-sm font-bold text-slate-700">Seu Nome Completo</label>
-                        <input type="text" placeholder="Ex: João Silva"
-                            class="w-full p-4 bg-slate-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
-                    </div>
-                    <div class="space-y-2">
-                        <label class="text-sm font-bold text-slate-700">Seu WhatsApp de Contato</label>
-                        <input type="tel" placeholder="(00) 00000-0000"
-                            class="w-full p-4 bg-slate-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
-                    </div>
-                    <div class="md:col-span-2 space-y-2">
-                        <label class="text-sm font-bold text-slate-700">Título do Imóvel (Como quer anunciar?)</label>
-                        <input type="text" placeholder="Ex: Apartamento 2 qtos mobiliado no Centro"
-                            class="w-full p-4 bg-slate-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
-                    </div>
-                    <div class="space-y-2">
-                        <label class="text-sm font-bold text-slate-700">Valor do Aluguel</label>
-                        <input type="number" placeholder="R$ 0,00"
-                            class="w-full p-4 bg-slate-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
-                    </div>
-                    <div class="space-y-2">
-                        <label class="text-sm font-bold text-slate-700">Localização (Bairro/Cidade)</label>
-                        <input type="text" placeholder="Ex: Batel, Curitiba"
-                            class="w-full p-4 bg-slate-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
-                    </div>
-                    <div
-                        class="md:col-span-2 p-8 border-2 border-dashed border-slate-200 rounded-3xl text-center space-y-4">
-                        <div class="text-4xl text-slate-300">
-                            <i class="fas fa-cloud-upload-alt"></i>
-                        </div>
-                        <p class="text-slate-500 font-medium">Arraste as fotos aqui ou <span
-                                class="text-blue-600 font-bold cursor-pointer">selecione arquivos</span></p>
-                        <p class="text-xs text-slate-400">Mínimo de 3 fotos de alta qualidade.</p>
-                    </div>
-                    <div class="md:col-span-2 pt-4">
-                        <button type="submit"
-                            class="w-full bg-slate-900 text-white py-5 rounded-2xl font-bold text-xl hover:bg-slate-800 transition shadow-xl">
-                            Enviar para o WhatsApp Imobiliário
-                        </button>
-                    </div>
-                </form>
-                <p class="text-center mt-6 text-xs text-slate-400 uppercase font-bold tracking-widest">
-                    Ao enviar, você concorda com nossos termos de privacidade.
-                </p>
             </div>
         </div>
     </section>

@@ -4,15 +4,28 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Http\Client\ConnectionException;
 
 class GeminiService
 {
     private string $apiKey;
-    private string $baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+    private string $model;
+    private string $baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/';
 
     public function __construct()
     {
         $this->apiKey = config('services.gemini.api_key', '');
+        $this->model = config('services.gemini.model', 'gemini-3-flash-preview');
+    }
+
+    public function testPrompt(string $prompt, ?string $model = null, bool $verifySsl = true): array
+    {
+        return $this->callModel($prompt, [
+            'temperature' => 0.2,
+            'topK' => 40,
+            'topP' => 0.95,
+            'maxOutputTokens' => 200,
+        ], $model, $verifySsl);
     }
 
     /**
@@ -47,29 +60,16 @@ PROMPT;
         $userPrompt = "Analise esta mensagem do usuário: '{$userMessage}'";
 
         try {
-            $response = Http::timeout(30)
-                ->post($this->baseUrl . '?key=' . $this->apiKey, [
-                    'contents' => [
-                        [
-                            'role' => 'user',
-                            'parts' => [
-                                ['text' => $systemPrompt . "\n\n" . $userPrompt],
-                            ],
-                        ],
-                    ],
-                    'generationConfig' => [
-                        'temperature' => 0.7,
-                        'topK' => 40,
-                        'topP' => 0.95,
-                        'maxOutputTokens' => 200,
-                    ],
-                ]);
+            $response = $this->callModel($systemPrompt . "\n\n" . $userPrompt, [
+                'temperature' => 0.7,
+                'topK' => 40,
+                'topP' => 0.95,
+                'maxOutputTokens' => 200,
+            ]);
 
-            if ($response->successful()) {
-                $data = $response->json();
-                $content = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
-                
-                // Extrai JSON da resposta
+            if ($response['successful']) {
+                $content = $response['content'] ?? '';
+
                 preg_match('/\{.*\}/s', $content, $matches);
                 if ($matches) {
                     $parsed = json_decode($matches[0], true);
@@ -79,7 +79,7 @@ PROMPT;
                     }
                 }
             } else {
-                Log::warning('Erro ao chamar Gemini API', ['response' => $response->json()]);
+                Log::warning('Erro ao chamar Gemini API', ['response' => $response['raw'] ?? null, 'status' => $response['status'] ?? null]);
             }
         } catch (\Exception $e) {
             Log::error('Erro ao analisar intenção com Gemini: ' . $e->getMessage());
@@ -128,31 +128,20 @@ Historico recente da conversa:
 PROMPT;
 
         try {
-            $response = Http::timeout(30)
-                ->post($this->baseUrl . '?key=' . $this->apiKey, [
-                    'contents' => [
-                        [
-                            'role' => 'user',
-                            'parts' => [
-                                ['text' => $prompt],
-                            ],
-                        ],
-                    ],
-                    'generationConfig' => [
-                        'temperature' => 0.8,
-                        'topK' => 40,
-                        'topP' => 0.95,
-                        'maxOutputTokens' => 220,
-                    ],
-                ]);
+            $response = $this->callModel($prompt, [
+                'temperature' => 0.8,
+                'topK' => 40,
+                'topP' => 0.95,
+                'maxOutputTokens' => 220,
+            ]);
 
-            if ($response->successful()) {
-                $content = $response->json('candidates.0.content.parts.0.text', '');
+            if ($response['successful']) {
+                $content = $response['content'] ?? '';
                 if (is_string($content)) {
                     $result = trim($content);
                 }
             } else {
-                Log::warning('Falha ao gerar resposta RAG no Gemini', ['response' => $response->json()]);
+                Log::warning('Falha ao gerar resposta RAG no Gemini', ['response' => $response['raw'] ?? null, 'status' => $response['status'] ?? null]);
             }
         } catch (\Exception $e) {
             Log::error('Erro ao gerar resposta RAG com Gemini: ' . $e->getMessage());
@@ -190,6 +179,58 @@ PROMPT;
         $message .= "Para mais informações, entre em contato conosco! 💬";
         
         return $message;
+    }
+
+    private function callModel(string $prompt, array $generationConfig = [], ?string $model = null, bool $verifySsl = true): array
+    {
+        if (!$this->apiKey) {
+            return [
+                'successful' => false,
+                'status' => 0,
+                'raw' => null,
+                'content' => '',
+                'error' => 'Gemini API key not configured',
+            ];
+        }
+
+        $activeModel = $model ?: $this->model;
+        try {
+            $request = Http::timeout(30);
+
+            if (!$verifySsl) {
+                $request = $request->withoutVerifying();
+            }
+
+            $response = $request->post($this->baseUrl . $activeModel . ':generateContent?key=' . $this->apiKey, [
+                'contents' => [
+                    [
+                        'role' => 'user',
+                        'parts' => [
+                            ['text' => $prompt],
+                        ],
+                    ],
+                ],
+                'generationConfig' => $generationConfig,
+            ]);
+
+            return [
+                'successful' => $response->successful(),
+                'status' => $response->status(),
+                'raw' => $response->json(),
+                'content' => $response->json('candidates.0.content.parts.0.text', ''),
+                'error' => $response->successful() ? null : ($response->json('error.message') ?? 'Gemini request failed'),
+                'model' => $activeModel,
+            ];
+        } catch (ConnectionException $e) {
+            return [
+                'successful' => false,
+                'status' => 0,
+                'raw' => null,
+                'content' => '',
+                'error' => 'SSL/conexão falhou: ' . $e->getMessage(),
+                'model' => $activeModel,
+            ];
+        }
     }
 }
 
