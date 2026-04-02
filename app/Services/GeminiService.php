@@ -10,6 +10,7 @@ class GeminiService
 {
     private string $apiKey;
     private string $model;
+    private string $fallbackModel = 'gemini-3-flash-preview';
     private string $baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/';
 
     public function __construct()
@@ -194,6 +195,14 @@ PROMPT;
         }
 
         $activeModel = $model ?: $this->model;
+        if ($this->isLegacyModel($activeModel)) {
+            Log::warning('Modelo Gemini legado detectado. Aplicando fallback automatico.', [
+                'requested_model' => $activeModel,
+                'fallback_model' => $this->fallbackModel,
+            ]);
+            $activeModel = $this->fallbackModel;
+        }
+
         try {
             $request = Http::timeout(30);
 
@@ -231,6 +240,16 @@ PROMPT;
                 'model' => $activeModel,
             ];
         }
+    }
+
+    private function isLegacyModel(string $model): bool
+    {
+        $legacyModels = [
+            'gemini-pro',
+            'gemini-1.0-pro',
+        ];
+
+        return in_array(mb_strtolower(trim($model)), $legacyModels, true);
     }
 }
 
