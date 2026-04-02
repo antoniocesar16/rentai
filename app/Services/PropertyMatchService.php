@@ -29,7 +29,7 @@ class PropertyMatchService
     public function buildBestApartmentMessage(?array $bestMatch, array $properties): string
     {
         if (empty($properties)) {
-            return "No momento não há apartamentos cadastrados na plataforma.\n\nSe quiser, posso te ajudar a cadastrar novos imóveis ou te mostrar outro tipo de anúncio.";
+            return "No momento não encontrei apartamentos disponíveis aqui na plataforma. Se quiser, me diz o bairro e a faixa de preço que eu te aviso assim que aparecer uma opção boa para você.";
         }
 
         if (!$bestMatch) {
@@ -40,22 +40,17 @@ class PropertyMatchService
         $price = isset($bestMatch['price']) ? number_format((float) $bestMatch['price'], 2, ',', '.') : '0,00';
         $location = $bestMatch['location'] ?? 'Localização não informada';
         $description = trim((string) ($bestMatch['description'] ?? ''));
-        $ownerHint = isset($bestMatch['user_id']) ? 'Anúncio cadastrado por um locador da plataforma.' : '';
 
-        $message = "🏠 *Imóvel que mais combina com sua busca:*\n\n";
-        $message .= "*{$title}*\n";
-        $message .= "💰 R$ {$price}\n";
-        $message .= "📍 {$location}\n";
+        $message = "Encontrei uma opção que combina com o que você pediu.\n\n";
+        $message .= "Temos um apartamento em *{$location}*:\n";
+        $message .= "• *{$title}*\n";
+        $message .= "• Valor: *R$ {$price}*\n";
 
         if ($description !== '') {
-            $message .= '📝 ' . mb_substr($description, 0, 180) . "\n";
+            $message .= '• Detalhes: ' . mb_substr($description, 0, 180) . "\n";
         }
 
-        if ($ownerHint !== '') {
-            $message .= "\n{$ownerHint}\n";
-        }
-
-        $message .= "\nSe quiser, eu posso refinar a busca por bairro, faixa de preço ou número de quartos.";
+        $message .= "\nSe quiser, eu te mostro mais opções parecidas ou já filtro por bairro, valor e quantidade de quartos.";
 
         return $message;
     }
