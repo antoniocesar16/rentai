@@ -275,10 +275,14 @@ class WhatsappWebhookController extends Controller
         $bestMatch = $this->propertyMatchService->findBestMatchingProperty($properties, $userMessage);
         $response = $this->propertyMatchService->buildBestApartmentMessage($bestMatch, $properties);
 
-        $sendResult = $this->evolutionAPI->sendMessage(
+        $sendResult = $this->evolutionAPI->sendMessageBlock(
             $instance->instance_name,
             $senderNumber,
-            $response
+            $response,
+            [
+                'maxLength' => 1000,
+                'delay' => 1000, // 1 segundo entre mensagens
+            ]
         );
 
         Log::info('Resposta de listagem enviada', [
@@ -403,10 +407,14 @@ class WhatsappWebhookController extends Controller
             $response = "Entendi! Posso te ajudar a encontrar um apartamento ideal. Se quiser, me diga bairro, faixa de preco e quantidade de quartos.";
         }
 
-        $sendResult = $this->evolutionAPI->sendMessage(
+        $sendResult = $this->evolutionAPI->sendMessageBlock(
             $instance->instance_name,
             $senderNumber,
-            $response
+            $response,
+            [
+                'maxLength' => 1000,
+                'delay' => 1000, // 1 segundo entre mensagens
+            ]
         );
 
         Log::info('Tentativa de envio da resposta RAG', [

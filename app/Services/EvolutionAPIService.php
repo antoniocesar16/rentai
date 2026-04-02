@@ -180,6 +180,123 @@ class EvolutionAPIService
         }
     }
 
+    /**
+     * Envia uma mensagem longa em múltiplas partes (split) com delay entre elas
+     * Útil para respostas que excedem limites de caracteres do WhatsApp
+     */
+    public function sendMessageBlock(string $instanceName, string $numero, string $mensagem, array $options = []): array
+    {
+        $maxLength = $options['maxLength'] ?? 1000; // WhatsApp suporta até ~4096 caracteres
+        $delay = $options['delay'] ?? 1000; // 1 segundo entre mensagens
+        $normalizedNumber = $this->normalizeRecipientNumber($numero);
+
+        // Se a mensagem cabe em uma só, enviar normalmente
+        if (mb_strlen($mensagem) <= $maxLength) {
+            return $this->sendMessage($instanceName, $numero, $mensagem, $options);
+        }
+
+        // Dividir a mensagem em chunks
+        $chunks = $this->splitMessageByLimit($mensagem, $maxLength);
+        $totalChunks = count($chunks);
+
+        Log::info('Evolution sendMessageBlock iniciado', [
+            'instance' => $instanceName,
+            'number' => $normalizedNumber,
+            'original_length' => mb_strlen($mensagem),
+            'chunks' => $totalChunks,
+            'max_length' => $maxLength,
+            'delay_ms' => $delay,
+        ]);
+
+        $results = [];
+        foreach ($chunks as $index => $chunk) {
+            // Aguardar delay antes de enviar (exceto na primeira)
+            if ($index > 0) {
+                usleep($delay * 1000); // Converter ms para microsegundos
+            }
+
+            $result = $this->sendMessage($instanceName, $numero, $chunk, [
+                'linkPreview' => $options['linkPreview'] ?? true,
+                'mentionsEveryOne' => $options['mentionsEveryOne'] ?? false,
+                'delay' => 0, // Usar nosso delay, não o da API
+            ]);
+
+            $results[] = $result;
+
+            // Log de cada chunk enviado
+            Log::debug('Evolution sendMessageBlock - chunk enviado', [
+                'instance' => $instanceName,
+                'number' => $normalizedNumber,
+                'chunk_index' => $index + 1,
+                'chunk_total' => $totalChunks,
+                'chunk_length' => mb_strlen($chunk),
+                'success' => !isset($result['error']),
+            ]);
+        }
+
+        Log::info('Evolution sendMessageBlock concluido', [
+            'instance' => $instanceName,
+            'number' => $normalizedNumber,
+            'total_chunks' => $totalChunks,
+        ]);
+
+        return [
+            'success' => true,
+            'chunks_sent' => $totalChunks,
+            'original_length' => mb_strlen($mensagem),
+            'results' => $results,
+        ];
+    }
+
+    /**
+     * Divide uma mensagem em múltiplos chunks respeitando o limite de caracteres
+     * Tenta quebrar em limites naturais (pontos, quebras de linha, espaços)
+     */
+    private function splitMessageByLimit(string $message, int $maxLength): array
+    {
+        if (mb_strlen($message) <= $maxLength) {
+            return [$message];
+        }
+
+        $chunks = [];
+        $current = '';
+        $sentences = preg_split('/(?<=[.!?\n])\s+/u', $message) ?? [$message];
+
+        foreach ($sentences as $sentence) {
+            // Se a sentença sozinha já é maior que o limite, quebrar por caracteres
+            if (mb_strlen($sentence) > $maxLength) {
+                if (!empty($current)) {
+                    $chunks[] = trim($current);
+                    $current = '';
+                }
+
+                // Quebrar sentença grande em pedaços (com suporte a multibyte)
+                $sentenceLength = mb_strlen($sentence);
+                for ($i = 0; $i < $sentenceLength; $i += intval($maxLength / 2)) {
+                    $chunk = mb_substr($sentence, $i, intval($maxLength / 2));
+                    if (!empty(trim($chunk))) {
+                        $chunks[] = trim($chunk);
+                    }
+                }
+            } elseif (mb_strlen($current) + mb_strlen($sentence) + 1 > $maxLength) {
+                // Não cabe no chunk atual, guardar o atual e começar novo
+                if (!empty($current)) {
+                    $chunks[] = trim($current);
+                }
+                $current = $sentence;
+            } else {
+                // Cabe no chunk atual
+                $current = $current ? $current . ' ' . $sentence : $sentence;
+            }
+        }
+
+        if (!empty($current)) {
+            $chunks[] = trim($current);
+        }
+
+        return array_filter($chunks, fn($c) => !empty($c));
+    }
+
     public function sendMediaMessage(
         string $instanceName,
         string $numero,

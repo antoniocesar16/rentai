@@ -79,7 +79,7 @@ PROMPT;
                 'temperature' => 0.7,
                 'topK' => 40,
                 'topP' => 0.95,
-                'maxOutputTokens' => 200,
+                'maxOutputTokens' => 500,
             ]);
 
             if ($response['successful']) {
@@ -174,7 +174,7 @@ PROMPT;
                 'temperature' => 0.8,
                 'topK' => 40,
                 'topP' => 0.95,
-                'maxOutputTokens' => 220,
+                'maxOutputTokens' => 1500,
             ]);
 
             if ($response['successful']) {
