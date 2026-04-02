@@ -126,8 +126,11 @@ class EvolutionAPIService
                 'delay' => (int) ($options['delay'] ?? 0),
                 'linkPreview' => (bool) ($options['linkPreview'] ?? true),
                 'mentionsEveryOne' => (bool) ($options['mentionsEveryOne'] ?? false),
-                'mentioned' => is_array($options['mentioned'] ?? null) ? $options['mentioned'] : [],
             ];
+
+            if (!empty($options['mentioned']) && is_array($options['mentioned'])) {
+                $payload['mentioned'] = array_values(array_filter($options['mentioned'], fn($item) => is_string($item) && trim($item) !== ''));
+            }
 
             Log::info('Evolution sendText iniciado', [
                 'instance' => $instanceName,
@@ -198,8 +201,11 @@ class EvolutionAPIService
                 'delay' => (int) ($options['delay'] ?? 0),
                 'linkPreview' => (bool) ($options['linkPreview'] ?? true),
                 'mentionsEveryOne' => (bool) ($options['mentionsEveryOne'] ?? false),
-                'mentioned' => is_array($options['mentioned'] ?? null) ? $options['mentioned'] : [],
             ];
+
+            if (!empty($options['mentioned']) && is_array($options['mentioned'])) {
+                $payload['mentioned'] = array_values(array_filter($options['mentioned'], fn($item) => is_string($item) && trim($item) !== ''));
+            }
 
             if (!empty($options['quoted']) && is_array($options['quoted'])) {
                 $payload['quoted'] = $options['quoted'];
