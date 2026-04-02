@@ -119,14 +119,22 @@ class EvolutionAPIService
     public function sendMessage(string $instanceName, string $numero, string $mensagem, array $options = []): array
     {
         try {
+            $normalizedNumber = $this->normalizeRecipientNumber($numero);
             $payload = [
-                'number' => $numero,
+                'number' => $normalizedNumber,
                 'text' => $mensagem,
                 'delay' => (int) ($options['delay'] ?? 0),
                 'linkPreview' => (bool) ($options['linkPreview'] ?? true),
                 'mentionsEveryOne' => (bool) ($options['mentionsEveryOne'] ?? false),
                 'mentioned' => is_array($options['mentioned'] ?? null) ? $options['mentioned'] : [],
             ];
+
+            Log::info('Evolution sendText iniciado', [
+                'instance' => $instanceName,
+                'number_original' => $numero,
+                'number_normalized' => $normalizedNumber,
+                'message_length' => mb_strlen($mensagem),
+            ]);
 
             if (!empty($options['quoted']) && is_array($options['quoted'])) {
                 $payload['quoted'] = $options['quoted'];
@@ -139,7 +147,30 @@ class EvolutionAPIService
                     'Content-Type' => 'application/json',
                 ])->post("{$this->baseUrl}/message/sendText/{$instanceName}", $payload);
 
-            return $response->json() ?? ['success' => true];
+            $responseBody = $response->json();
+
+            if (!$response->successful()) {
+                Log::warning('Evolution sendText falhou', [
+                    'instance' => $instanceName,
+                    'number' => $normalizedNumber,
+                    'status' => $response->status(),
+                    'response' => $responseBody,
+                ]);
+
+                return [
+                    'error' => true,
+                    'status' => $response->status(),
+                    'response' => $responseBody,
+                ];
+            }
+
+            Log::info('Evolution sendText concluido', [
+                'instance' => $instanceName,
+                'number' => $normalizedNumber,
+                'status' => $response->status(),
+            ]);
+
+            return $responseBody ?? ['success' => true];
         } catch (\Exception $e) {
             Log::error("Erro ao enviar mensagem: " . $e->getMessage());
             return ['error' => 'Falha ao enviar mensagem', 'message' => $e->getMessage()];
@@ -156,8 +187,9 @@ class EvolutionAPIService
         array $options = [],
     ): array {
         try {
+            $normalizedNumber = $this->normalizeRecipientNumber($numero);
             $payload = [
-                'number' => $numero,
+                'number' => $normalizedNumber,
                 'mediatype' => 'image',
                 'mimetype' => $mimeType,
                 'caption' => $caption,
@@ -180,11 +212,41 @@ class EvolutionAPIService
                     'Content-Type' => 'application/json',
                 ])->post("{$this->baseUrl}/message/sendMedia/{$instanceName}", $payload);
 
-            return $response->json() ?? ['success' => true];
+            $responseBody = $response->json();
+
+            if (!$response->successful()) {
+                Log::warning('Evolution sendMedia falhou', [
+                    'instance' => $instanceName,
+                    'number' => $normalizedNumber,
+                    'status' => $response->status(),
+                    'response' => $responseBody,
+                ]);
+
+                return [
+                    'error' => true,
+                    'status' => $response->status(),
+                    'response' => $responseBody,
+                ];
+            }
+
+            return $responseBody ?? ['success' => true];
         } catch (\Exception $e) {
             Log::error("Erro ao enviar midia: " . $e->getMessage());
             return ['error' => 'Falha ao enviar midia', 'message' => $e->getMessage()];
         }
+    }
+
+    private function normalizeRecipientNumber(string $number): string
+    {
+        $candidate = trim($number);
+
+        if (str_contains($candidate, '@')) {
+            $candidate = explode('@', $candidate)[0] ?? $candidate;
+        }
+
+        $digits = preg_replace('/\D+/', '', $candidate) ?? '';
+
+        return $digits !== '' ? $digits : trim($number);
     }
 
     public function getProfileInfo(string $instanceName): array

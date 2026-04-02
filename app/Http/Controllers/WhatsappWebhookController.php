@@ -385,11 +385,17 @@ class WhatsappWebhookController extends Controller
             $response = "Entendi! Posso te ajudar a encontrar um apartamento ideal. Se quiser, me diga bairro, faixa de preco e quantidade de quartos.";
         }
 
-        $this->evolutionAPI->sendMessage(
+        $sendResult = $this->evolutionAPI->sendMessage(
             $instance->instance_name,
             $senderNumber,
             $response
         );
+
+        Log::info('Tentativa de envio da resposta RAG', [
+            'instance' => $instance->instance_name,
+            'sender_number' => $senderNumber,
+            'send_result' => $sendResult,
+        ]);
 
         return $response;
     }
